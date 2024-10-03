@@ -1,0 +1,15 @@
+
+client/node_modules
+signaling-server/node_modules
+signaling-server/.env
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
