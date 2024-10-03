@@ -11,9 +11,9 @@ const iceServers = {
 };
 
 //initiate peer connection and websocket
-
+const ws_url = process.env.WS_URL || "ws://localhost:3000";
 const pc = new RTCPeerConnection(iceServers);
-const ws = new WebSocket("ws://localhost:3000");
+const ws = new WebSocket(ws_url);
 
 //local and remote stream
 let localStream = null;
