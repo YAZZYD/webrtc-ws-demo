@@ -1,5 +1,5 @@
+import { nanoid } from "nanoid";
 import "./style.css";
-
 //ice servers
 const iceServers = {
   iceServers: [
@@ -11,9 +11,10 @@ const iceServers = {
 };
 
 //initiate peer connection and websocket
-const ws_url = process.env.WS_URL || "ws://localhost:3000";
+// const ws_url = process.env.WS_URL || "ws://localhost:3000";
+const ws_url = "ws://localhost:3000";
 const pc = new RTCPeerConnection(iceServers);
-const ws = new WebSocket(ws_url);
+let ws = new WebSocket(ws_url);
 
 //local and remote stream
 let localStream = null;
@@ -32,18 +33,71 @@ const hangupButton = document.getElementById("hangupButton");
 ws.onopen = () => {
   console.log("Connected to the signaling server");
 };
-
+ws.onerror = (error) => {
+  console.error("WebSocket error:", error);
+  setTimeout(() => {
+    console.log("Retrying connection...");
+    ws = new WebSocket(ws_url);
+  }, 5000); // Retry after 5 seconds
+};
 ws.onclose = () => {
   console.log("Disconnected from signaling server");
 };
 
-let receivedOffer = null;
+let candidateQueue = [];
 
 ws.onmessage = async (event) => {
   const message = JSON.parse(event.data);
-  // this is temporary, get-offer route will be created to get offer from server
-  message.type === "get-offer" && (receivedOffer = message.offer);
-  console.log("Message received: ", message);
+  switch (message.type) {
+    case "answer":
+      try {
+        console.log("setting remote description");
+        await pc.setRemoteDescription(
+          new RTCSessionDescription(message.answer)
+        );
+        console.log("after setting remote description", pc.remoteDescription);
+        console.log("applying buffered ICE candidates");
+        candidateQueue.forEach(async (candidate) => {
+          try {
+            await pc.addIceCandidate(candidate);
+            console.log("Buffered ICE candidate applied:", candidate);
+          } catch (err) {
+            console.error("Error applying buffered ICE candidate", err);
+          }
+        });
+        candidateQueue = [];
+      } catch (err) {
+        console.error("Error adding answer", err);
+      }
+    case "ice":
+      try {
+        console.log(
+          `Adding ICE candidates
+           REMOTE DESC SET(${pc.remoteDescription ? true : false}) 
+           CANDIDATE  SET(${message.candidate ? true : false}) 
+          `
+        );
+
+        const candidate = new RTCIceCandidate(message.candidate);
+
+        if (pc.remoteDescription && message.candidate) {
+          await pc.addIceCandidate(candidate);
+          console.log("ICE candidate added immediately:", candidate);
+        } else if (candidate) {
+          // Otherwise, buffer the candidate until remote description is set
+          console.log("Remote description not set, buffering ICE candidate");
+          candidateQueue.push(candidate);
+        } else {
+          console.log("Candidate is null");
+        }
+      } catch (err) {
+        console.error("Error adding ICE candidates", err);
+      }
+      break;
+    default:
+      console.warn("Unknown message type", message.type);
+      break;
+  }
 };
 
 webcamButton.onclick = async () => {
@@ -77,7 +131,7 @@ webcamButton.onclick = async () => {
 callButton.onclick = async () => {
   try {
     //generate call id
-    const callId = Math.random().toString();
+    const callId = nanoid();
     callInput.value = callId;
 
     //this will be triggered after creating offer
@@ -99,7 +153,7 @@ callButton.onclick = async () => {
       JSON.stringify({
         type: "offer",
         callId: callId,
-        offer: { sqp: offerDescription.sdp, type: offerDescription.type },
+        offer: { sdp: offerDescription.sdp, type: offerDescription.type },
       })
     );
   } catch (err) {
@@ -107,19 +161,32 @@ callButton.onclick = async () => {
   }
 };
 
-//this is temporary, get-offer route will be created to get offer from server
 const getOffer = async (callId) => {
-  ws.send(
-    JSON.stringify({
-      type: "get-offer",
-      callId: callId,
-    })
-  );
+  try {
+    const response = await fetch(
+      `http://localhost:3000/offer?call_id=${callId}`,
+      {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const { offer } = await response.json();
+    return offer;
+  } catch (error) {
+    alert("Error fetching offer");
+    console.error("Error fetching offer:", error);
+  }
 };
+
 answerButton.onclick = async () => {
   const callId = callInput.value;
   //will be changed to get offer from http not ws
-  const offer = await getOffer(callId);
+  const offerDescription = await getOffer(callId);
 
   //this will be triggered after creating answer
   pc.onicecandidate = (event) => {
@@ -134,8 +201,7 @@ answerButton.onclick = async () => {
   };
 
   //getting offer and creating answer
-  const offerDescription = new RTCSessionDescription(offer);
-  await pc.setRemoteDescription(offerDescription);
+  await pc.setRemoteDescription(new RTCSessionDescription(offerDescription));
   const answerDescription = await pc.createAnswer();
   await pc.setLocalDescription(answerDescription);
 
@@ -143,7 +209,7 @@ answerButton.onclick = async () => {
     JSON.stringify({
       type: "answer",
       callId: callId,
-      offer: { sqp: offerDescription.sdp, type: offerDescription.type },
+      answer: { sdp: answerDescription.sdp, type: answerDescription.type },
     })
   );
 };
