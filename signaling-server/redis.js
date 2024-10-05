@@ -14,12 +14,29 @@ redis.on("error", (err) => {
 // Connect to Redis
 redis.connect().catch(console.error);
 
+/**
+##################################################
+##########          OFFER         ################
+##################################################
+ * */
+
 const cacheOffer = async (callId, offer) => {
   const key = `offer:${callId}`;
   await redis.set(key, JSON.stringify(offer), {
     EX: CACHE_EXPIRATION,
   });
 };
+
+const getOffer = async (callId) => {
+  const key = `offer:${callId}`;
+  const offer = await redis.get(key);
+  return offer ? JSON.parse(offer) : null;
+};
+/**
+##################################################
+##########          CANDIDATES    ################
+##################################################
+ **/
 
 const cacheCandidate = async (callId, candidate) => {
   const key = `candidate:${callId}`;
@@ -36,8 +53,21 @@ const getCandidates = async (callId) => {
   return candidates ? JSON.parse(candidates) : [];
 };
 
-const getOffer = async (callId) => {
-  const key = `offer:${callId}`;
+/**
+##################################################
+##########          ANSWER        ################
+##################################################
+ **/
+
+const cacheAnswer = async (callId, answer) => {
+  const key = `answer:${callId}`;
+  await redis.set(key, JSON.stringify(answer), {
+    EX: CACHE_EXPIRATION,
+  });
+};
+
+const getAnswer = async (callId) => {
+  const key = `answer:${callId}`;
   const offer = await redis.get(key);
   return offer ? JSON.parse(offer) : null;
 };
@@ -45,6 +75,8 @@ const getOffer = async (callId) => {
 module.exports = {
   cacheOffer,
   cacheCandidate,
+  cacheAnswer,
   getOffer,
   getCandidates,
+  getAnswer,
 };
